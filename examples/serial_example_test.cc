@@ -6,8 +6,14 @@
 #include <signal.h>
 #include <serial/serial.h>
 #define BUFFER_SIZE 256
-#define FRAME_HEADER 0xAA  // 帧头
+#define FRAME_HEADER 0x48  // 帧头
 #define FRAME_TAIL 0x0A    // 帧尾
+
+// 定义帧的开头和结尾字节
+const uint8_t FRAME_HEADER_1 = 0x48;
+const uint8_t FRAME_HEADER_2 = 0xAA;
+const uint8_t FRAME_TAIL_1 = 0x0D;
+const uint8_t FRAME_TAIL_2 = 0x0A;
 using namespace std;
 
 serial::Serial* my_serial = nullptr;  // 定义全局串口对象
@@ -187,6 +193,67 @@ void receiveAndProcessData(CircularBuffer& cb) {
         }
     }
 }
+
+
+// 接收数据并处理环形缓冲区中的数据
+void receiveAndProcessDataByHeader2(CircularBuffer& cb) {
+    // 接收数据到环形缓冲区
+    vector<uint8_t> response(0);  // 读取28个字节的数据
+    my_serial->read(response, 28);
+    size_t count = response.size();
+    
+    for (size_t i = 0; i < count; ++i) {
+        cb.buffer[cb.recv_ptr] = response[i];
+        cb.recv_ptr = (cb.recv_ptr + 1) & 0xFF;  // 环形缓冲区
+    }
+
+    // 处理缓冲区中的数据
+    while (cb.get_ptr != cb.recv_ptr) {  // 如果缓冲区有未处理的数据
+        uint8_t current_byte = cb.buffer[cb.get_ptr];
+        cb.get_ptr = (cb.get_ptr + 1) & 0xFF;  // 环形缓冲区
+
+        if (cb.is_parsing_frame) {
+            if (current_byte == FRAME_TAIL_1) {
+                // 找到第一个结束字节
+                uint8_t next_byte = cb.buffer[cb.get_ptr];
+                if (next_byte == FRAME_TAIL_2) {
+                    // 找到帧尾，设置结束指针
+                    cb.end_ptr = cb.get_ptr;
+                    cb.is_parsing_frame = false;  // 关闭帧标志
+
+                    // 计算帧长度
+                    size_t length = (cb.end_ptr >= cb.start_ptr) ? 
+                                    (cb.end_ptr - cb.start_ptr) : 
+                                    (BUFFER_SIZE - cb.start_ptr + cb.end_ptr);
+
+                    if (length != 28) {
+                        // 如果帧长度不是28字节，放弃该帧
+                        cout << "Invalid frame length: " << length << ". Frame discarded." << endl;
+                        continue;
+                    }
+
+                    // 提取帧数据
+                    vector<uint8_t> frame(length);
+                    for (size_t i = 0; i < length; ++i) {
+                        frame[i] = cb.buffer[(cb.start_ptr + i) & 0xFF];
+                    }
+
+                    // 调用解析函数
+                    parseData(frame);
+                }
+            }
+        } else if (current_byte == FRAME_HEADER_1) {
+            // 找到第一个帧头字节
+            uint8_t next_byte = cb.buffer[cb.get_ptr];
+            if (next_byte == FRAME_HEADER_2) {
+               // 找到完整的帧头，设置起始指针为前一个字节位置
+                cb.start_ptr = (cb.get_ptr == 0) ? (BUFFER_SIZE - 1) : (cb.get_ptr - 1);
+                cb.is_parsing_frame = true;
+            }
+        }
+    }
+}
+
 
 // 线程函数，用于接收和解析数据
 void receiveData() {
