@@ -60,7 +60,9 @@ endif()
 add_executable(serial_example examples/serial_example_test.cc)
 add_dependencies(serial_example ${PROJECT_NAME})
 target_link_libraries(serial_example ${PROJECT_NAME})
-
+add_executable(serial_example_byte examples/serial_example_byte.cc)
+add_dependencies(serial_example_byte ${PROJECT_NAME})
+target_link_libraries(serial_example_byte ${PROJECT_NAME})
 ## Include headers
 include_directories(include)
 
